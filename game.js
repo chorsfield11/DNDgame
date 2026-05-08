@@ -368,4 +368,4 @@ const config = {
     physics: { default: 'arcade', arcade: { gravity: { y: 0 } } },
     scene: [WorldScene, BattleScene] 
 };
-const game = new Phaser.Game(config);
+const game = new Phaser.Game(config); 
