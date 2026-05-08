@@ -1,5 +1,5 @@
 // ==========================================
-// SCENE 1: THE OVERWORLD (Leveling & Tracking)
+// SCENE 1: THE OVERWORLD (Leveling, Tracking, & AI Innkeeper)
 // ==========================================
 const WorldScene = {
     key: 'WorldScene',
@@ -11,10 +11,10 @@ const WorldScene = {
             this.registry.set('inventory', ['Health Potion', 'Health Potion']);
             this.registry.set('playerGold', 0);
             
-            // --- NEW: RPG PROGRESSION STATS ---
+            // RPG PROGRESSION STATS
             this.registry.set('playerLevel', 1);
             this.registry.set('playerXP', 0);
-            this.registry.set('playerAttackBonus', 4); // Starts at +4 to hit
+            this.registry.set('playerAttackBonus', 4); 
         }
     },
 
@@ -59,8 +59,6 @@ const WorldScene = {
         this.worldHealthText = this.add.text(20, 20, '', { font: '24px Arial', fill: '#00ff00', fontStyle: 'bold' }).setScrollFactor(0).setStroke('#000000', 4);
         this.worldPotionText = this.add.text(20, 50, '', { font: '20px Arial', fill: '#ffff00', fontStyle: 'bold' }).setScrollFactor(0).setStroke('#000000', 4);
         this.worldGoldText = this.add.text(20, 80, '', { font: '20px Arial', fill: '#ffaa00', fontStyle: 'bold' }).setScrollFactor(0).setStroke('#000000', 4);
-        
-        // --- NEW: LEVEL & XP TRACKER ---
         this.worldLevelText = this.add.text(20, 110, '', { font: '20px Arial', fill: '#00ccff', fontStyle: 'bold' }).setScrollFactor(0).setStroke('#000000', 4);
 
         this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
@@ -79,7 +77,6 @@ const WorldScene = {
         const potionCount = inv.filter(item => item === 'Health Potion').length;
         this.worldPotionText.setText(`Potions: ${potionCount}`);
 
-        // Update Level and XP text (Threshold is Level * 100)
         let currentLvl = this.registry.get('playerLevel');
         let currentXP = this.registry.get('playerXP');
         this.worldLevelText.setText(`Lvl: ${currentLvl} | XP: ${currentXP}/${currentLvl * 100}`);
@@ -130,13 +127,36 @@ const WorldScene = {
             });
         }
 
+        // ==========================================
+        // --- NEW: THE AI INNKEEPER LOGIC ---
+        // ==========================================
         if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && !this.isDialogShowing) {
             const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.npc.x, this.npc.y);
             if (distance < 60) {
-                this.dialogText.setText("Welcome to the Desert Inn! Rest for 10 Gold?\n[Press 'Y' to Buy, 'SPACE' to Leave]");
+                // 1. Show the box so they know the AI is thinking
+                this.dialogText.setText("Innkeeper is looking you up and down...");
                 this.dialogBox.setVisible(true);
                 this.dialogText.setVisible(true);
                 this.isDialogShowing = true;
+
+                // 2. Ask the backend for a custom line!
+                fetch('/.netlify/functions/chat', {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        hp: this.registry.get('playerHP'),
+                        maxHp: this.registry.get('playerMaxHP'),
+                        gold: this.registry.get('playerGold')
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    // Update the text box with Gemini's response!
+                    this.dialogText.setText(data.reply + "\n\n[Press 'Y' to Rest (10g), 'SPACE' to Leave]");
+                })
+                .catch(err => {
+                    // Fallback just in case the AI server takes too long
+                    this.dialogText.setText("Welcome to the Desert Inn! Rest for 10 Gold?\n\n[Press 'Y' to Buy, 'SPACE' to Leave]");
+                });
             }
         }
     }
@@ -158,12 +178,10 @@ const BattleScene = {
         let playerAttackBonus;
         let inventory; 
         
-        // --- NEW: THE ENEMY BESTIARY ---
-        // We define the rules for our different monsters here!
         const enemyTypes = [
-            { name: 'Goblin', maxHP: 15, ac: 12, atkMod: 2, dmgDie: 4, xp: 40, goldBonus: 0, color: 0xff0000 }, // Red
-            { name: 'Orc', maxHP: 25, ac: 14, atkMod: 4, dmgDie: 6, xp: 90, goldBonus: 10, color: 0x00aa00 },   // Green
-            { name: 'Skeleton', maxHP: 10, ac: 11, atkMod: 3, dmgDie: 6, xp: 30, goldBonus: -5, color: 0xdddddd } // Grey
+            { name: 'Goblin', maxHP: 15, ac: 12, atkMod: 2, dmgDie: 4, xp: 40, goldBonus: 0, color: 0xff0000 }, 
+            { name: 'Orc', maxHP: 25, ac: 14, atkMod: 4, dmgDie: 6, xp: 90, goldBonus: 10, color: 0x00aa00 },   
+            { name: 'Skeleton', maxHP: 10, ac: 11, atkMod: 3, dmgDie: 6, xp: 30, goldBonus: -5, color: 0xdddddd } 
         ];
         
         let currentEnemy;
@@ -172,7 +190,7 @@ const BattleScene = {
 
         this.add.rectangle(400, 300, 800, 600, 0x1a2b3c); 
         this.playerSprite = this.add.sprite(200, 250, 'player-sprite', 4).setScale(2); 
-        this.enemySprite = this.add.sprite(600, 250, 'npc-sprite').setScale(2); // Tint is set during Spawn
+        this.enemySprite = this.add.sprite(600, 250, 'npc-sprite').setScale(2); 
 
         const playerHealthText = this.add.text(130, 150, '', { font: '20px Arial', fill: '#00ff00', fontStyle: 'bold' });
         const enemyHealthText = this.add.text(530, 150, '', { font: '20px Arial', fill: '#ff0000', fontStyle: 'bold' });
@@ -190,15 +208,12 @@ const BattleScene = {
             btn.on('pointerout', () => btn.setStyle({ fill: '#ffffff' })); 
         });
 
-        // --- NEW: THE SPAWN FUNCTION ---
-        // This picks a random monster and sets up the screen
         const spawnEnemy = () => {
             playerHP = this.registry.get('playerHP');
             playerMaxHP = this.registry.get('playerMaxHP');
             playerAttackBonus = this.registry.get('playerAttackBonus');
             inventory = this.registry.get('inventory');
             
-            // Pick a random enemy from our list!
             currentEnemy = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
             enemyHP = currentEnemy.maxHP;
             isPlayerTurn = true;
@@ -217,7 +232,7 @@ const BattleScene = {
             const enemyRoll = rollDice(20) + currentEnemy.atkMod; 
             
             this.time.delayedCall(1000, () => {
-                if (enemyRoll >= 14) { // Player AC is hardcoded to 14
+                if (enemyRoll >= 14) { 
                     const damage = rollDice(currentEnemy.dmgDie) + 1;
                     playerHP -= damage;
                     this.registry.set('playerHP', playerHP); 
@@ -249,11 +264,10 @@ const BattleScene = {
             if (!isPlayerTurn) return; 
             isPlayerTurn = false; 
             
-            // Use the dynamic player attack bonus!
             const attackRoll = rollDice(20) + playerAttackBonus; 
             
             if (attackRoll >= currentEnemy.ac) {
-                const damage = rollDice(6) + 2; // Player damage is 1d6 + 2
+                const damage = rollDice(6) + 2; 
                 enemyHP -= damage;
                 combatLog.setText(`Hit! You deal ${damage} damage!`);
                 enemyHealthText.setText(`${currentEnemy.name} HP: ${enemyHP}/${currentEnemy.maxHP}`);
@@ -267,30 +281,27 @@ const BattleScene = {
                 this.time.delayedCall(1500, () => {
                     this.enemySprite.setVisible(false); 
                     
-                    // --- NEW: LEVEL UP AND LOOT LOGIC ---
                     let pLevel = this.registry.get('playerLevel');
                     let pXP = this.registry.get('playerXP') + currentEnemy.xp;
-                    let nextLevelXP = pLevel * 100; // Need 100 XP for Lvl 2, 200 for Lvl 3, etc.
+                    let nextLevelXP = pLevel * 100; 
                     
                     let victoryText = `VICTORY! Gained ${currentEnemy.xp} XP.`;
 
-                    // Did we level up?!
                     if (pXP >= nextLevelXP) {
                         pLevel++;
-                        pXP -= nextLevelXP; // Reset progress toward next level
+                        pXP -= nextLevelXP; 
                         
                         let newMaxHP = playerMaxHP + 5;
                         this.registry.set('playerLevel', pLevel);
                         this.registry.set('playerMaxHP', newMaxHP);
-                        this.registry.set('playerHP', newMaxHP); // Free full heal on level up!
-                        this.registry.set('playerAttackBonus', playerAttackBonus + 1); // Hit harder
+                        this.registry.set('playerHP', newMaxHP); 
+                        this.registry.set('playerAttackBonus', playerAttackBonus + 1); 
                         
                         victoryText += `\nLEVEL UP! You are now Level ${pLevel}!`;
                     }
                     this.registry.set('playerXP', pXP);
 
-                    // Add Loot (scaled by the monster's goldBonus)
-                    const goldFound = Math.max(0, rollDice(10) + currentEnemy.goldBonus); // ensure no negative gold
+                    const goldFound = Math.max(0, rollDice(10) + currentEnemy.goldBonus); 
                     let currentGold = this.registry.get('playerGold');
                     this.registry.set('playerGold', currentGold + goldFound);
                     
@@ -303,8 +314,6 @@ const BattleScene = {
                     }
                     
                     combatLog.setText(victoryText);
-
-                    // Wait longer (4 seconds) so the player can read the massive Level Up text!
                     this.time.delayedCall(4000, () => this.scene.switch('WorldScene'));
                 });
             } else {
@@ -343,10 +352,8 @@ const BattleScene = {
             }
         });
 
-        // Initialize the first battle!
         spawnEnemy();
 
-        // Re-initialize every time the battle wakes up!
         this.events.on('wake', () => {
             spawnEnemy();
         });
